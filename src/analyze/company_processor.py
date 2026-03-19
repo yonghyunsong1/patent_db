@@ -29,8 +29,17 @@ def load_and_flatten_data(json_path):
         address_line_2 = ""
         
         if address_bag and len(address_bag) > 0:
-            law_firm = address_bag[0].get('nameLineOneText', 'Unknown')
-            address_line_2 = address_bag[0].get('nameLineTwoText', '')
+            law_firm = str(address_bag[0].get('nameLineOneText', 'Unknown'))
+            address_line_2 = str(address_bag[0].get('nameLineTwoText', ''))
+
+        # --- THE FIX FOR IN-HOUSE COUNSEL ---
+        # We grab the first distinct word of the target company (e.g., "Eikon" from "Eikon Therapeutics")
+        # and see if it appears anywhere in the correspondence address.
+        if target_company != 'Unknown':
+            primary_company_word = target_company.split()[0].lower()
+            if primary_company_word in law_firm.lower() or primary_company_word in address_line_2.lower():
+                law_firm = "In-House Counsel / Internal"
+        # ------------------------------------
 
         clean_records.append({
             "Target_Company": target_company,
