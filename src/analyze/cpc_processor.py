@@ -1,65 +1,97 @@
+import json
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
 import os
 import glob
+from datetime import datetime
 
-def plot_cpc_landscape(csv_path, output_dir):
-    df = pd.read_csv(csv_path)
-    if df.empty: return
+def categorize_status(status_string):
+    status = str(status_string).upper()
+    if 'PROVISIONAL' in status: return 'Provisional (Placeholder)'
+    elif 'PCT' in status or 'INTERNATIONAL' in status: return 'PCT (Intl. Placeholder)'
+    elif 'PATENTED' in status or 'ISSUED' in status or 'ALLOW' in status: return 'Enforceable (Granted)'
+    elif 'ABANDON' in status: return 'Abandoned (Wastage)'
+    else: return 'Pipeline (Active/Pending)'
+
+def process_cpc_file(json_path, root_dir):
+    print(f"Processing landscape data: {os.path.basename(json_path)}")
+    
+    with open(json_path, 'r') as f:
+        raw_data = json.load(f)
+
+    clean_records = []
+    for doc in raw_data:
+        tech_desc = doc.get('Search_Target_Technology', 'Unknown')
+        cpc_code = doc.get('CPC_Code', 'Unknown')
         
-    tech_name = df['Technology'].iloc[0]
-    safe_name = os.path.basename(csv_path).replace("_landscape.csv", "")
-    
-    sns.set_theme(style="whitegrid")
-    fig, axes = plt.subplots(1, 3, figsize=(22, 7))
-    fig.suptitle(f"IP Industry Landscape: {tech_name}", fontsize=20, fontweight='bold', y=1.05)
+        meta = doc.get('applicationMetaData', {})
+        status = meta.get('applicationStatusDescriptionText', 'Unknown')
+        
+        # Get Law Firm
+        address_bag = doc.get('correspondenceAddressBag', [])
+        law_firm = "Unknown / Pro Se"
+        if address_bag and len(address_bag) > 0:
+            law_firm = address_bag[0].get('nameLineOneText', 'Unknown').upper()
 
-    # PANEL 1: Top 10 Companies (Assignees)
-    top_comps = df[df['Company'] != 'UNASSIGNED']['Company'].value_counts().head(10)
-    sns.barplot(y=top_comps.index, x=top_comps.values, ax=axes[0], hue=top_comps.index, palette="mako", legend=False)
-    axes[0].set_title("Top 10 Patent Filers (Companies)", fontsize=14, fontweight='bold')
-    axes[0].set_xlabel("Number of Applications")
-    axes[0].set_yticks(axes[0].get_yticks())
-    axes[0].set_yticklabels([label.get_text()[:30] + '...' if len(label.get_text()) > 30 else label.get_text() for label in axes[0].get_yticklabels()])
+        # Get Company (Assignee or Applicant)
+        assignee_bag = doc.get('assigneeBag', [])
+        applicant_bag = doc.get('applicantBag', [])
+        company = "Unassigned"
+        
+        if assignee_bag and len(assignee_bag) > 0:
+            company = assignee_bag[0].get('assigneeNameText', 'Unassigned').upper()
+        elif applicant_bag and len(applicant_bag) > 0:
+            company = applicant_bag[0].get('applicantNameText', 'Unassigned').upper()
 
-    # PANEL 2: Top 10 Law Firms
-    top_firms = df['Law_Firm'].value_counts().head(10)
-    sns.barplot(y=top_firms.index, x=top_firms.values, ax=axes[1], hue=top_firms.index, palette="rocket", legend=False)
-    axes[1].set_title("Top 10 Law Firms in this Sector", fontsize=14, fontweight='bold')
-    axes[1].set_xlabel("Number of Applications")
-    axes[1].set_yticks(axes[1].get_yticks())
-    axes[1].set_yticklabels([label.get_text()[:30] + '...' if len(label.get_text()) > 30 else label.get_text() for label in axes[1].get_yticklabels()])
+        clean_records.append({
+            "Technology": tech_desc,
+            "CPC_Code": cpc_code,
+            "Company": company,
+            "Law_Firm": law_firm,
+            "Filing_Date": meta.get('filingDate', 'Unknown'),
+            "Raw_Status": status,
+            "Business_Category": categorize_status(status)
+        })
 
-    # PANEL 3: Industry Filing Trend
+    df = pd.DataFrame(clean_records)
     df['Filing_Date'] = pd.to_datetime(df['Filing_Date'], errors='coerce')
-    df['Filing_Year'] = df['Filing_Date'].dt.year
-
-    if not df['Filing_Year'].dropna().empty:
-        year_counts = df['Filing_Year'].value_counts().sort_index()
-        sns.lineplot(x=year_counts.index, y=year_counts.values, ax=axes[2], marker='o', color='b', linewidth=2.5)
-        axes[2].set_title("Industry R&D Velocity (Total Filings)", fontsize=14, fontweight='bold')
-        axes[2].set_xlabel("Filing Year")
-        axes[2].set_ylabel("Applications")
     
-    plt.tight_layout()
-    output_path = os.path.join(output_dir, f"{safe_name}_landscape_dashboard.png")
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"📊 Generated Graphic: {output_path}")
+    # Save CSV
+    safe_name = os.path.basename(json_path).replace("_raw.json", "")
+    csv_path = os.path.join(root_dir, "data", "processed", f"{safe_name}_landscape.csv")
+    df.to_csv(csv_path, index=False)
+
+    # Generate Landscape Text Report
+    report_path = os.path.join(root_dir, "outputs", "reports", f"{safe_name}_landscape_report.txt")
+    with open(report_path, 'w') as f:
+        f.write(f"INDUSTRY LANDSCAPE REPORT: {df['Technology'].iloc[0].upper()} ({cpc_code})\n")
+        f.write("=" * 70 + "\n")
+        
+        f.write("\n1. TOP 10 COMPANIES DOMINATING THIS SPACE\n")
+        f.write("-" * 70 + "\n")
+        top_companies = df[df['Company'] != 'UNASSIGNED']['Company'].value_counts().head(10)
+        for comp, count in top_companies.items():
+            f.write(f"  [{count:03d} Patents] {comp}\n")
+            
+        f.write("\n2. TOP 10 LAW FIRMS IN THIS SPACE (Your Targets!)\n")
+        f.write("-" * 70 + "\n")
+        top_firms = df['Law_Firm'].value_counts().head(10)
+        for firm, count in top_firms.items():
+            f.write(f"  [{count:03d} Patents] {firm}\n")
+
+    print(f"  ✅ Saved {csv_path} and Report!")
 
 def main():
     current_dir = os.path.dirname(os.path.abspath(__file__)) 
     root_dir = os.path.dirname(os.path.dirname(current_dir)) 
     
-    csv_dir = os.path.join(root_dir, "data", "processed")
-    output_dir = os.path.join(root_dir, "outputs", "figures")
-    os.makedirs(output_dir, exist_ok=True)
-
-    csv_files = glob.glob(os.path.join(csv_dir, "cpc_*_landscape.csv"))
+    raw_dir = os.path.join(root_dir, "data", "raw")
+    cpc_files = glob.glob(os.path.join(raw_dir, "cpc_*_raw.json"))
     
-    for file in csv_files:
-        plot_cpc_landscape(file, output_dir)
+    os.makedirs(os.path.join(root_dir, "data", "processed"), exist_ok=True)
+    os.makedirs(os.path.join(root_dir, "outputs", "reports"), exist_ok=True)
+
+    for file in cpc_files:
+        process_cpc_file(file, root_dir)
 
 if __name__ == "__main__":
     main()

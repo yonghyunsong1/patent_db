@@ -8,9 +8,9 @@ def main():
     current_dir = os.path.dirname(os.path.abspath(__file__)) 
     root_dir = os.path.dirname(os.path.dirname(current_dir)) 
     
-    config_path = os.path.join(root_dir, "configs", "cpc_codes.csv")
+    config_path = os.path.join(root_dir, "configs", "tech_keywords.csv")
     try:
-        cpc_df = pd.read_csv(config_path, comment='#')   
+        kw_df = pd.read_csv(config_path, comment='#')   
     except FileNotFoundError:
         print(f"❌ Error: Could not find {config_path}.")
         return
@@ -24,34 +24,27 @@ def main():
     output_dir = os.path.join(root_dir, "data", "raw")
     os.makedirs(output_dir, exist_ok=True)
 
-    for index, row in cpc_df.iterrows():
-        cpc_code = row['cpc_code'].strip()
+    for index, row in kw_df.iterrows():
+        keyword = row['keyword'].strip()
         description = row['description'].strip()
         
-        print(f"\n🔬 Searching Tech Class: {cpc_code} ({description})")
+        print(f"\n🔬 Searching Title Keyword: {keyword} ({description})")
         
-# We must escape the slash for OpenSearch
-        safe_cpc = cpc_code.replace("/", "\\/")
-        
-        # The exact syntax from the USPTO documentation for nested fields
-        # Note: NO QUOTES around the value!
-        search_string = f"cpcClassificationBag.cpcClassificationCode:{safe_cpc}"        
+        # Searching the Title field works perfectly
+        search_string = f'applicationMetaData.inventionTitle:"{keyword}"'
 
-        # We pull 500 records here to get a true industry landscape
-        docs = engine.execute_query(search_string=search_string, max_records=50)
+        docs = engine.execute_query(search_string=search_string, max_records=200)
         
         if not docs:
             print(f"  -> Skipping save, no data found.")
             continue
 
-        # Tag the data
         for doc in docs:
             doc['Search_Target_Technology'] = description
-            doc['CPC_Code'] = cpc_code
+            doc['Search_Keyword'] = keyword
             
-        # Create a clean filename (e.g., "A61D 19/00" -> "a61d_19_00")
-        safe_filename = cpc_code.replace(" ", "_").replace("/", "_").lower()
-        output_file = os.path.join(output_dir, f"cpc_{safe_filename}_raw.json")
+        safe_filename = keyword.replace(" ", "_").replace("-", "_").lower()
+        output_file = os.path.join(output_dir, f"kw_{safe_filename}_raw.json")
         
         with open(output_file, 'w') as f:
             json.dump(docs, f, indent=4)
