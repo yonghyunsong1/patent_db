@@ -1,6 +1,12 @@
 keyword,description
-"in vitro fertilization",Clinical IVF Systems
-"embryo",Embryo Processing and Culture
-"cryo-electron",Cryo-EM Technologies
-"spatial transcriptomics",Spatial Biology and Sequencing
-"microfluidic",Microfluidics and Lab-on-a-chip
+bioinformatics,Computational Biology & Data
+machine learning,AI and Machine Learning
+artificial intelligence,AI and Machine Learning
+cryo-electron,Structural Biology & Imaging
+multiphoton,Advanced Imaging Optics
+medical imaging,Diagnostics & Clinical Imaging
+metabolomic,Omics & Systems Biology
+transcriptomic,Omics & Systems Biology
+in vitro fertilization,Reproductive Tech
+embryo,Reproductive Tech & Stem Cells
+computational model,Quantitative Biology
