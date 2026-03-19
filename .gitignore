@@ -1,8 +1,5 @@
 # Data (Never upload raw patent data dumps to GitHub!)
 data/
-*.csv
-*.json
-*.parquet
 
 # Outputs
 outputs/
