@@ -1,6 +1,5 @@
-To do now:
-Fix the issue of llp and company showing up together in the plots 
-for the technology plots, also plot companies and law firms. also do 500 patents rather than 200. 
+April 1 2026.
+by Yonghyun Song.
+Code to pull data from USPTO patent database and make figures and analysis.
 
-To do future:
-Get citation count and claim numbers. See their interplay, and see how time/firm identity/tech company explains.
+NLP part needs a lot of work.
