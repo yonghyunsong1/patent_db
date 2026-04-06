@@ -33,7 +33,7 @@ def main():
         # Searching the Title field works perfectly
         search_string = f'applicationMetaData.inventionTitle:"{keyword}"'
 
-        docs = engine.execute_query(search_string=search_string, max_records=200)
+        docs = engine.execute_query(search_string=search_string, max_records=500)
         
         if not docs:
             print(f"  -> Skipping save, no data found.")

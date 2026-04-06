@@ -6,47 +6,133 @@ from datetime import datetime
 
 def extract_company_name(doc):
     """
-    Hunts through the USPTO JSON schema to find the Company/Assignee.
-    Ignores empty strings and handles different API schemas.
+    Try to find the assignee/applicant company name by searching the most
+    likely USPTO bags (assigneeBag, partyBag, and their versions inside
+    applicationMetaData), while avoiding law‑firm‑like names.
     """
-    # 1. Check flat fields first
-    for flat_key in ['assigneeEntityName', 'assigneeOrganizationName']:
-        val = doc.get(flat_key)
-        if val and len(str(val).strip()) > 2: 
-            return str(val).strip().title()
-            
-    # 2. Recursive search function that IGNORES empty strings
-    def search_dict_for_org(d):
-        if isinstance(d, dict):
-            for key in ['organizationNameStandardized', 'organizationName']:
-                val = d.get(key)
-                if val and len(str(val).strip()) > 2:
-                    return str(val).strip()
-            for v in d.values():
-                res = search_dict_for_org(v)
-                if res: return res
-        elif isinstance(d, list):
-            for item in d:
-                res = search_dict_for_org(item)
-                if res: return res
-        return None
-        
-    # Search the two most common JSON bags
-    found = search_dict_for_org(doc.get('partyBag', {}))
-    if found: return found.title()
-    
-    found = search_dict_for_org(doc.get('assigneeBag', {}))
-    if found: return found.title()
 
-    # 3. Fallback: The standard Applicant Name line
-    party_bag = doc.get('partyBag', {})
-    applicants = party_bag.get('applicantBagOrAssigneeBag', [])
-    if applicants and isinstance(applicants, list) and len(applicants) > 0:
-        val = applicants[0].get('nameLineOneText')
-        if val and len(str(val).strip()) > 2:
-            return str(val).strip().title()
-            
+    def looks_like_law_firm(name: str) -> bool:
+        n = name.upper()
+        law_terms = [
+            " LLP", " L.L.P", " L L P",
+            " ATTORNEY", " ATTORNEYS",
+            " ATTORNEY AT LAW", " ATTORNEYS AT LAW",
+            " LAW FIRM", " LAW GROUP", " LAW OFFICE",
+            " PC", " P.C.", " P C",
+            " ESQ", " ESQUIRE",
+            " LEGAL", " ADVOCATE", " BARRISTER", " SOLICITOR"
+        ]
+        return any(term in n for term in law_terms)
+
+    def search_org_fields(node):
+        """
+        Recursively search for common organization/applicant/assignee fields
+        within the given subtree.
+        """
+        candidates = []
+
+        def walk(n):
+            if isinstance(n, dict):
+                for k, v in n.items():
+                    kl = str(k).lower()
+
+                    # These keys are likely to hold org / assignee / applicant names
+                    if any(tag in kl for tag in [
+                        "assigneeentityname",
+                        "assigneeorganizationname",
+                        "organizationnamestandardized",
+                        "organizationname",
+                        "orgname",
+                        "applicantname",
+                        "applicantnametext",
+                        "entityname",
+                        "namelineonetext",
+                        "applicant",
+                        "assignee"
+                    ]):
+                        if isinstance(v, str):
+                            val = v.strip()
+                        else:
+                            val = str(v).strip() if not isinstance(v, (dict, list)) else ""
+
+                        if len(val) > 2 and not looks_like_law_firm(val):
+                            candidates.append(val)
+
+                    # Recurse
+                    if isinstance(v, (dict, list)):
+                        walk(v)
+
+            elif isinstance(n, list):
+                for item in n:
+                    walk(item)
+
+        walk(node)
+        return candidates
+
+    # Collect candidates from the most promising bags first
+    search_roots = []
+
+    # Top‑level assignee/party bags
+    if 'assigneeBag' in doc:
+        search_roots.append(doc['assigneeBag'])
+    if 'partyBag' in doc:
+        search_roots.append(doc['partyBag'])
+
+    # applicationMetaData.* versions
+    app_meta = doc.get('applicationMetaData', {})
+    if isinstance(app_meta, dict):
+        if 'assigneeBag' in app_meta:
+            search_roots.append(app_meta['assigneeBag'])
+        if 'partyBag' in app_meta:
+            search_roots.append(app_meta['partyBag'])
+
+    candidates = []
+    for root in search_roots:
+        candidates.extend(search_org_fields(root))
+
+    # If we didn’t find anything in the obvious places, do a limited fallback
+    # over applicationMetaData only (not the whole doc).
+    if not candidates and isinstance(app_meta, dict):
+        candidates.extend(search_org_fields(app_meta))
+
+    # Final selection logic
+    if candidates:
+        # remove exact duplicates
+        candidates = list(dict.fromkeys(candidates))
+
+        # Prefer non–law‑firm names (we already filtered, but keep this just in case)
+        non_law = [c for c in candidates if not looks_like_law_firm(c)]
+        choice_pool = non_law if non_law else candidates
+
+        # Heuristic: pick the shortest reasonably long name
+        best = sorted(choice_pool, key=len)[0]
+        return best.title()
+
+    # As an ultimate fallback, look for a generic nameLineOneText anywhere
+    def search_name_line_one(node):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if k.lower() == "namelineonetext":
+                    val = str(v).strip()
+                    if len(val) > 2 and not looks_like_law_firm(val):
+                        return val
+                if isinstance(v, (dict, list)):
+                    res = search_name_line_one(v)
+                    if res:
+                        return res
+        elif isinstance(node, list):
+            for item in node:
+                res = search_name_line_one(item)
+                if res:
+                    return res
+        return None
+
+    fallback = search_name_line_one(app_meta) or search_name_line_one(doc)
+    if fallback:
+        return fallback.title()
+
     return "Unknown"
+
 
 def load_and_flatten_data(json_path):
     print(f"Loading raw data from: {os.path.basename(json_path)}")
